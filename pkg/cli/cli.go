@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"fmt"
+
 	"github.com/jh125486/CSCE4350_gradebot/pkg/client"
 	basecli "github.com/jh125486/gradebot/pkg/cli"
 	baseclient "github.com/jh125486/gradebot/pkg/client"
@@ -22,6 +24,14 @@ type (
 // Run executes the Project 1 grading client.
 // The buildID is injected by Kong from the bound value.
 func (cmd *Project1Cmd) Run(ctx basecli.Context, svc *basecli.Service) error {
+	// Validate required inputs upfront to fail fast
+	if cmd.ServerURL == "" {
+		return fmt.Errorf("server URL is required")
+	}
+	if err := cmd.WorkDir.Validate(); err != nil {
+		return fmt.Errorf("invalid work directory: %w", err)
+	}
+
 	cfg := &baseclient.Config{
 		ServerURL:     cmd.ServerURL,
 		WorkDir:       cmd.WorkDir,

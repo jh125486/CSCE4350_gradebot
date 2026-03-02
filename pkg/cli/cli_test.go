@@ -17,6 +17,7 @@ const (
 	testServerURL     = "http://example.invalid"
 	testRunCmd        = "echo test"
 	testStdinNegative = "n\n"
+	testTimeout       = 3 * time.Second
 )
 
 func TestWorkDirValidate(t *testing.T) {
@@ -64,6 +65,7 @@ func TestProject1CmdRun(t *testing.T) {
 		dir       string
 		runCmd    string
 		client    *http.Client
+		ctx       context.Context
 	}
 	tests := []struct {
 		name    string
@@ -71,16 +73,60 @@ func TestProject1CmdRun(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "executes project 1 successfully",
+			name: "returns error for cancelled context",
 			args: args{
 				serverURL: testServerURL,
 				dir:       t.TempDir(),
 				runCmd:    testRunCmd,
 				client: &http.Client{
-					Timeout: 100 * time.Millisecond,
+					Timeout: testTimeout,
 				},
+				ctx: func() context.Context {
+					ctx, cancel := context.WithCancel(contextlog.With(context.Background(), contextlog.DiscardLogger()))
+					cancel()
+					return ctx
+				}(),
 			},
-			wantErr: false, // Should work with minimal setup
+			wantErr: true,
+		},
+		{
+			name: "returns error for empty server URL",
+			args: args{
+				serverURL: "",
+				dir:       t.TempDir(),
+				runCmd:    testRunCmd,
+				client: &http.Client{
+					Timeout: testTimeout,
+				},
+				ctx: contextlog.With(context.Background(), contextlog.DiscardLogger()),
+			},
+			wantErr: true,
+		},
+		{
+			name: "returns error for invalid work directory",
+			args: args{
+				serverURL: testServerURL,
+				dir:       "./nonexistent-path-that-does-not-exist",
+				runCmd:    testRunCmd,
+				client: &http.Client{
+					Timeout: testTimeout,
+				},
+				ctx: contextlog.With(context.Background(), contextlog.DiscardLogger()),
+			},
+			wantErr: true,
+		},
+		{
+			name: "returns error for empty work directory",
+			args: args{
+				serverURL: testServerURL,
+				dir:       "",
+				runCmd:    testRunCmd,
+				client: &http.Client{
+					Timeout: testTimeout,
+				},
+				ctx: contextlog.With(context.Background(), contextlog.DiscardLogger()),
+			},
+			wantErr: true,
 		},
 	}
 
@@ -100,10 +146,12 @@ func TestProject1CmdRun(t *testing.T) {
 				Stdout: new(bytes.Buffer),
 			}
 
-			ctx, cancel := context.WithTimeout(contextlog.With(t.Context(), contextlog.DiscardLogger()), 100*time.Millisecond)
-			defer cancel()
+			runCtx := tt.args.ctx
+			if runCtx == nil {
+				runCtx = contextlog.With(t.Context(), contextlog.DiscardLogger())
+			}
 
-			err := p.Run(basecli.Context{Context: ctx}, svc)
+			err := p.Run(basecli.Context{Context: runCtx}, svc)
 
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Project1Cmd.Run() error = %v, wantErr %v", err, tt.wantErr)

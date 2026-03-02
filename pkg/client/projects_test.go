@@ -27,9 +27,21 @@ func TestExecuteProject1(t *testing.T) {
 		args        args
 		shouldPanic bool
 		wantErr     bool
+		setupCtx    func(t *testing.T) context.Context
 		setup       func(t *testing.T, args *args)
 		verify      func(t *testing.T)
 	}
+
+	// Helper function to create a context with timeout and logger
+	contextWithTimeout := func(t *testing.T) context.Context {
+		ctx, cancel := context.WithTimeout(
+			contextlog.With(context.Background(), contextlog.DiscardLogger()),
+			100*time.Millisecond,
+		)
+		t.Cleanup(cancel)
+		return ctx
+	}
+
 	tests := []testCase{
 		{
 			name: "nil context panics",
@@ -46,8 +58,10 @@ func TestExecuteProject1(t *testing.T) {
 		},
 		{
 			name: "nil config panics",
+			setupCtx: func(t *testing.T) context.Context {
+				return context.Background()
+			},
 			args: args{
-				ctx: context.Background(),
 				cfg: nil,
 			},
 			shouldPanic: true,
@@ -55,12 +69,12 @@ func TestExecuteProject1(t *testing.T) {
 		},
 		{
 			name: "cancelled context returns error",
+			setupCtx: func(t *testing.T) context.Context {
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+				return ctx
+			},
 			args: args{
-				ctx: func() context.Context {
-					ctx, cancel := context.WithCancel(context.Background())
-					cancel()
-					return ctx
-				}(),
 				cfg: &client.Config{
 					WorkDir: client.WorkDir(t.TempDir()),
 					RunCmd:  "echo test",
@@ -71,16 +85,9 @@ func TestExecuteProject1(t *testing.T) {
 			wantErr:     true,
 		},
 		{
-			name: "empty WorkDir completes without immediate error",
+			name:     "empty WorkDir completes without immediate error",
+			setupCtx: contextWithTimeout,
 			args: args{
-				ctx: func() context.Context {
-					ctx, cancel := context.WithTimeout(
-						contextlog.With(context.Background(), contextlog.DiscardLogger()),
-						100*time.Millisecond,
-					)
-					t.Cleanup(cancel)
-					return ctx
-				}(),
 				cfg: &client.Config{
 					WorkDir: "",
 					RunCmd:  "echo test",
@@ -91,16 +98,9 @@ func TestExecuteProject1(t *testing.T) {
 			wantErr:     false, // Empty WorkDir doesn't cause immediate error, may timeout later
 		},
 		{
-			name: "nil reader is accepted",
+			name:     "nil reader is accepted",
+			setupCtx: contextWithTimeout,
 			args: args{
-				ctx: func() context.Context {
-					ctx, cancel := context.WithTimeout(
-						contextlog.With(context.Background(), contextlog.DiscardLogger()),
-						100*time.Millisecond,
-					)
-					t.Cleanup(cancel)
-					return ctx
-				}(),
 				cfg: &client.Config{
 					WorkDir: client.WorkDir(t.TempDir()),
 					RunCmd:  "echo test",
@@ -112,16 +112,9 @@ func TestExecuteProject1(t *testing.T) {
 			wantErr:     true, // May timeout or encounter missing dependencies
 		},
 		{
-			name: "config with io.Discard writer",
+			name:     "config with io.Discard writer",
+			setupCtx: contextWithTimeout,
 			args: args{
-				ctx: func() context.Context {
-					ctx, cancel := context.WithTimeout(
-						contextlog.With(context.Background(), contextlog.DiscardLogger()),
-						100*time.Millisecond,
-					)
-					t.Cleanup(cancel)
-					return ctx
-				}(),
 				cfg: &client.Config{
 					WorkDir: client.WorkDir(t.TempDir()),
 					RunCmd:  "echo test",
@@ -134,8 +127,10 @@ func TestExecuteProject1(t *testing.T) {
 		},
 		{
 			name: "logger context with applied timeout",
+			setupCtx: func(t *testing.T) context.Context {
+				return contextlog.With(context.Background(), contextlog.DiscardLogger())
+			},
 			args: args{
-				ctx: contextlog.With(context.Background(), contextlog.DiscardLogger()),
 				cfg: &client.Config{
 					WorkDir: client.WorkDir(t.TempDir()),
 					RunCmd:  "echo test",
@@ -152,16 +147,9 @@ func TestExecuteProject1(t *testing.T) {
 			},
 		},
 		{
-			name: "valid temp directory with timeout",
+			name:     "valid temp directory with timeout",
+			setupCtx: contextWithTimeout,
 			args: args{
-				ctx: func() context.Context {
-					ctx, cancel := context.WithTimeout(
-						contextlog.With(context.Background(), contextlog.DiscardLogger()),
-						100*time.Millisecond,
-					)
-					t.Cleanup(cancel)
-					return ctx
-				}(),
 				cfg: &client.Config{
 					WorkDir: client.WorkDir(t.TempDir()),
 					RunCmd:  "true",
@@ -172,16 +160,9 @@ func TestExecuteProject1(t *testing.T) {
 			wantErr:     true, // Expected to timeout or error on dependencies
 		},
 		{
-			name: "different RunCmd with timeout",
+			name:     "different RunCmd with timeout",
+			setupCtx: contextWithTimeout,
 			args: args{
-				ctx: func() context.Context {
-					ctx, cancel := context.WithTimeout(
-						contextlog.With(context.Background(), contextlog.DiscardLogger()),
-						100*time.Millisecond,
-					)
-					t.Cleanup(cancel)
-					return ctx
-				}(),
 				cfg: &client.Config{
 					WorkDir: client.WorkDir(t.TempDir()),
 					RunCmd:  "false",
@@ -191,6 +172,13 @@ func TestExecuteProject1(t *testing.T) {
 			shouldPanic: false,
 			wantErr:     true, // Expected to timeout or error on dependencies
 		},
+	}
+
+	// Initialize contexts at table definition time to preserve cleanup behavior
+	for i := range tests {
+		if tests[i].setupCtx != nil {
+			tests[i].args.ctx = tests[i].setupCtx(t)
+		}
 	}
 
 	for _, tt := range tests {

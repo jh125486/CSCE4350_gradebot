@@ -1,4 +1,4 @@
-.PHONY: help build test lint clean modernize
+.PHONY: help init deps-update test tidy static lint lint-update vuln-check modernize outdated fmt vet check
 .DEFAULT_GOAL := help
 
 # Variables
@@ -10,23 +10,18 @@ help:
 	@echo "Available targets:"
 	@sed -n 's/^##//p' $(MAKEFILE_LIST) | column -t -s ':' | sed -e 's/^/ /'
 
-## init: Initialize development environment (install git hooks)
-init:
+## init: Initialize complete development environment (git hooks)
+init: 
 	@echo "Initializing development environment..."
 	@bash .githooks/install-hooks.sh
+	@go install golang.org/x/tools/cmd/goimports@latest
 	@echo "Development environment initialized ✓"
 
-upgrade:
-	@echo "Upgrading Go modules to latest versions..."
+deps-update: lint-update
+	@echo "Updating Go modules to latest versions..."
 	@go get -u -t ./...
 	@go mod tidy
-	@echo "Go modules upgraded ✓"
-
-build:
-	@echo "Building $(BINARY_NAME)"
-	@mkdir -p $(BUILD_DIR)
-	go build -o $(BUILD_DIR)/$(BINARY_NAME) .
-	@echo "Build completed successfully: $(BUILD_DIR)/$(BINARY_NAME)"
+	@echo "Go modules updated ✓"
 
 ## test: Run all tests with coverage
 test:
@@ -39,13 +34,20 @@ tidy:
 	@echo "Go modules tidied ✓"
 
 ## static: Run all linting tools
-static: tidy vet golangci-lint modernize vuln-check outdated
+static: tidy vet lint modernize vuln-check outdated
 	@echo "All linting completed ✓"
 
-## golangci-lint: Run golangci-lint
-golangci-lint:
+## lint: Run golangci-lint with auto-fix enabled
+lint:
 	@echo "Running $$(go tool -modfile=golangci-lint.mod golangci-lint version)..."
 	@go tool -modfile=golangci-lint.mod golangci-lint run --fix ./...
+
+## lint-update: Update golangci-lint to latest version
+lint-update:
+	@echo "Updating golangci-lint..."
+	@go get -tool -modfile=golangci-lint.mod github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+	@go mod tidy -modfile=golangci-lint.mod
+	@echo "Updated $$(go tool -modfile=golangci-lint.mod golangci-lint version)"
 
 vuln-check:
 	@echo "Checking for vulnerabilities..."
@@ -75,22 +77,3 @@ vet:
 check: tidy fmt static test
 	@echo "All checks completed ✓"
 
-## run-server: Run gradebot in server mode
-run-server: build
-	@echo "Starting gradebot server..."
-	@$(BUILD_DIR)/$(BINARY_NAME) server
-
-## docker-build: Build Docker image (if Dockerfile exists)
-docker-build:
-	@if [ -f Dockerfile ]; then \
-		echo "Building Docker image..."; \
-		docker build -t $(BINARY_NAME):latest .; \
-	else \
-		echo "No Dockerfile found"; \
-	fi
-
-## deps: Download and verify dependencies
-deps:
-	@echo "Downloading dependencies..."
-	@go mod download
-	@go mod verify
