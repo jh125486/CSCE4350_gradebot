@@ -1,37 +1,17 @@
-package app_test
+package cli_test
 
 import (
 	"bytes"
 	"context"
-	"io"
 	"net/http"
 	"testing"
 	"time"
 
-	"github.com/jh125486/CSCE4350_gradebot/pkg/app"
+	"github.com/jh125486/CSCE4350_gradebot/pkg/cli"
 	basecli "github.com/jh125486/gradebot/pkg/cli"
 	baseclient "github.com/jh125486/gradebot/pkg/client"
 	"github.com/jh125486/gradebot/pkg/contextlog"
-	"github.com/jh125486/gradebot/pkg/rubrics"
 )
-
-// mockCommandFactory is a test mock for CommandFactory that immediately fails
-type mockCommandFactory struct{}
-
-func (m *mockCommandFactory) New(name string, arg ...string) rubrics.Commander {
-	return &mockCommander{}
-}
-
-// mockCommander is a test mock for Commander that fails on Start
-type mockCommander struct{}
-
-func (m *mockCommander) SetDir(dir string)          {} // no-op for test
-func (m *mockCommander) SetStdin(stdin io.Reader)   {} // no-op for test
-func (m *mockCommander) SetStdout(stdout io.Writer) {} // no-op for test
-func (m *mockCommander) SetStderr(stderr io.Writer) {} // no-op for test
-func (m *mockCommander) Start() error               { return context.DeadlineExceeded }
-func (m *mockCommander) Run() error                 { return context.DeadlineExceeded }
-func (m *mockCommander) ProcessKill() error         { return nil }
 
 const (
 	testServerURL     = "http://example.invalid"
@@ -80,11 +60,10 @@ func TestWorkDirValidate(t *testing.T) {
 func TestProject1CmdRun(t *testing.T) {
 	t.Parallel()
 	type args struct {
-		serverURL      string
-		dir            string
-		runCmd         string
-		client         *http.Client
-		commandFactory rubrics.CommandFactory
+		serverURL string
+		dir       string
+		runCmd    string
+		client    *http.Client
 	}
 	tests := []struct {
 		name    string
@@ -92,7 +71,7 @@ func TestProject1CmdRun(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "executes project 1 with mocked command factory",
+			name: "executes project 1 successfully",
 			args: args{
 				serverURL: testServerURL,
 				dir:       t.TempDir(),
@@ -100,29 +79,31 @@ func TestProject1CmdRun(t *testing.T) {
 				client: &http.Client{
 					Timeout: 100 * time.Millisecond,
 				},
-				commandFactory: &mockCommandFactory{},
 			},
-			wantErr: false,
+			wantErr: false, // Should work with minimal setup
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := app.Project1Cmd{
+			p := cli.Project1Cmd{
 				CommonArgs: basecli.CommonArgs{
-					ServerURL:      tt.args.serverURL,
-					Dir:            baseclient.WorkDir(tt.args.dir),
-					RunCmd:         tt.args.runCmd,
-					Client:         tt.args.client,
-					Stdout:         new(bytes.Buffer),
-					CommandFactory: tt.args.commandFactory,
+					ServerURL: tt.args.serverURL,
+					WorkDir:   baseclient.WorkDir(tt.args.dir),
+					RunCmd:    tt.args.runCmd,
 				},
+			}
+
+			svc := &basecli.Service{
+				Client: tt.args.client,
+				Stdin:  nil,
+				Stdout: new(bytes.Buffer),
 			}
 
 			ctx, cancel := context.WithTimeout(contextlog.With(t.Context(), contextlog.DiscardLogger()), 100*time.Millisecond)
 			defer cancel()
 
-			err := p.Run(basecli.Context{Context: ctx})
+			err := p.Run(basecli.Context{Context: ctx}, svc)
 
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Project1Cmd.Run() error = %v, wantErr %v", err, tt.wantErr)

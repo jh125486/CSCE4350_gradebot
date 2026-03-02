@@ -44,8 +44,8 @@ static: tidy vet golangci-lint modernize vuln-check outdated
 
 ## golangci-lint: Run golangci-lint
 golangci-lint:
-	@echo "Running $$(go tool golangci-lint version)..."
-	@go tool golangci-lint run --fix ./...
+	@echo "Running $$(go tool -modfile=golangci-lint.mod golangci-lint version)..."
+	@go tool -modfile=golangci-lint.mod golangci-lint run --fix ./...
 
 vuln-check:
 	@echo "Checking for vulnerabilities..."

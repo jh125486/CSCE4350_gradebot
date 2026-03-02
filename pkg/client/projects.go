@@ -19,7 +19,8 @@ var (
 // ExecuteProject1 executes the project1 grading flow using a runtime config.
 func ExecuteProject1(ctx context.Context, cfg *client.Config) error {
 	return client.ExecuteProject(ctx, cfg, "CSCE4350:Project1", project1Instructions,
-		baserubrics.EvaluateGit(osfs.New(cfg.Dir.String())),
+		baserubrics.RunBag{},
+		baserubrics.EvaluateGit(osfs.New(cfg.WorkDir.String())),
 		rubrics.EvaluateDataFileCreated,
 		rubrics.EvaluateSetGet,
 		rubrics.EvaluateOverwriteKey,

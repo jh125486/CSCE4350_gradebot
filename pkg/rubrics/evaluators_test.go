@@ -60,7 +60,7 @@ func newKVStoreMock(t *testing.T) *kvStoreMock {
 }
 
 func (m *kvStoreMock) Path() string { return m.tempDir }
-func (m *kvStoreMock) Run(args ...string) error {
+func (m *kvStoreMock) Run(ctx context.Context, args ...string) error {
 	m.runCallCount++
 	if m.runCallCount == 1 && m.firstRunErr != nil {
 		return m.firstRunErr
@@ -198,6 +198,7 @@ func (m *kvStoreMock) Do(input string) (stdout, stderr []string, err error) {
 }
 
 func TestEvaluateDataFileCreated(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name           string
 		setupMock      func(*kvStoreMock)
@@ -262,6 +263,7 @@ func TestEvaluateDataFileCreated(t *testing.T) {
 }
 
 func TestEvaluatePersistenceAfterRestart(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name           string
 		setupMock      func(*kvStoreMock)
@@ -350,6 +352,7 @@ func TestEvaluatePersistenceAfterRestart(t *testing.T) {
 }
 
 func TestEvaluateNonexistentGet(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name           string
 		setupMock      func(*kvStoreMock)
@@ -418,8 +421,8 @@ type simpleMockProgram struct {
 	runErr    error
 }
 
-func (s *simpleMockProgram) Path() string             { return "." }
-func (s *simpleMockProgram) Run(args ...string) error { return s.runErr }
+func (s *simpleMockProgram) Path() string                                  { return "." }
+func (s *simpleMockProgram) Run(ctx context.Context, args ...string) error { return s.runErr }
 func (s *simpleMockProgram) Do(in string) (stdout, stderr []string, err error) {
 	if len(s.responses) > 0 {
 		r := s.responses[0]
@@ -652,6 +655,7 @@ func TestEvaluateSetGet_Table(t *testing.T) {
 
 // TestEvaluateOverwriteKey tests the EvaluateOverwriteKey function.
 func TestEvaluateOverwriteKey(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name           string
 		setupMock      func(*kvStoreMock)
