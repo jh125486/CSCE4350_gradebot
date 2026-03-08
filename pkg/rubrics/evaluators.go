@@ -105,7 +105,7 @@ func EvaluatePersistenceAfterRestart(
 	if err := program.Run(ctx); err != nil {
 		return rubricItem(fmt.Sprintf("Restart failed: %v", err), 0)
 	}
-	time.Sleep(restartLoadDelay + 100*time.Millisecond) // extra wait for data loading after restart
+	time.Sleep(restartLoadDelay) // wait for startup prompt after restart
 
 	out, err := do(ctx, program, fmt.Sprintf(getCommandFmt, key1))
 	if err != nil {
@@ -117,13 +117,13 @@ func EvaluatePersistenceAfterRestart(
 
 	expected := bag[key1].(string)
 	actual := strings.TrimSpace(out[0])
-	
+
 	// Be flexible with prompt characters, same as SetGet
 	if trimPromptChars(actual) == expected {
 		return rubricItem("GET after restart returned correct value", 5)
 	}
 
-	return rubricItem(fmt.Sprintf("Expected '%s', got '%s'", expected, actual), 0)
+	return rubricItem(fmt.Sprintf("Value did not return expected value (expected '%s', got '%s')", expected, actual), 0)
 }
 
 // EvaluateNonexistentGet checks GET on a nonexistent key
