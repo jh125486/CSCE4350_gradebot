@@ -2,12 +2,10 @@ module github.com/jh125486/CSCE4350_gradebot
 
 go 1.25.5
 
-replace github.com/jh125486/gradebot => ../gradebot
-
 require (
 	github.com/go-git/go-billy/v5 v5.8.0
 	github.com/google/uuid v1.6.0
-	github.com/jh125486/gradebot v1.4.1
+	github.com/jh125486/gradebot v1.4.2
 	github.com/stretchr/testify v1.11.1
 )
 
