@@ -112,7 +112,17 @@ func EvaluatePersistenceAfterRestart(
 		return rubricItem(fmt.Sprintf("GET after restart failed: %v", err), 0)
 	}
 	if len(out) == 0 {
-		return rubricItem(fmt.Sprintf("GET after restart returned empty output (expected '%s')", bag[key1]), 0)
+		// XXX(post-semester): Remove this retry once gradebot ProgramRunner has an
+		// explicit post-Run readiness handshake instead of start-and-pray semantics.
+		// Some interactive implementations need one extra read cycle right after restart.
+		time.Sleep(100 * time.Millisecond)
+		out, err = do(ctx, program, fmt.Sprintf(getCommandFmt, key1))
+		if err != nil {
+			return rubricItem(fmt.Sprintf("GET after restart failed: %v", err), 0)
+		}
+		if len(out) == 0 {
+			return rubricItem(fmt.Sprintf("GET after restart returned empty output (expected '%s')", bag[key1]), 0)
+		}
 	}
 
 	expected := bag[key1].(string)
