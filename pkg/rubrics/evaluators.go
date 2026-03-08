@@ -68,6 +68,7 @@ func EvaluateDataFileCreated(ctx context.Context, program baserubrics.ProgramRun
 	if err := program.Run(ctx); err != nil {
 		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
+	time.Sleep(restartLoadDelay) // wait for startup prompt so prevOutLen is set correctly in Do()
 	bag[key1] = uuid.New().String()
 	_, err := do(ctx, program, fmt.Sprintf(setCommandFmt, key1, bag[key1]))
 	if err != nil {
@@ -90,6 +91,7 @@ func EvaluatePersistenceAfterRestart(
 	if err := program.Run(ctx); err != nil {
 		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
+	time.Sleep(restartLoadDelay) // wait for startup prompt so prevOutLen is set correctly in Do()
 	bag[key1] = uuid.New().String()
 	_, err := do(ctx, program, fmt.Sprintf(setCommandFmt, key1, bag[key1]))
 	if err != nil {
@@ -103,17 +105,25 @@ func EvaluatePersistenceAfterRestart(
 	if err := program.Run(ctx); err != nil {
 		return rubricItem(fmt.Sprintf("Restart failed: %v", err), 0)
 	}
-	// Wait briefly for the program to load data
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(restartLoadDelay + 100*time.Millisecond) // extra wait for data loading after restart
+
 	out, err := do(ctx, program, fmt.Sprintf(getCommandFmt, key1))
 	if err != nil {
 		return rubricItem(fmt.Sprintf("GET after restart failed: %v", err), 0)
 	}
-	if len(out) == 0 || strings.TrimSpace(out[0]) != bag[key1] {
-		return rubricItem("GET after restart did not return expected value", 0)
+	if len(out) == 0 {
+		return rubricItem(fmt.Sprintf("GET after restart returned empty output (expected '%s')", bag[key1]), 0)
 	}
 
-	return rubricItem("GET after restart returned correct value", 5)
+	expected := bag[key1].(string)
+	actual := strings.TrimSpace(out[0])
+	
+	// Be flexible with prompt characters, same as SetGet
+	if trimPromptChars(actual) == expected {
+		return rubricItem("GET after restart returned correct value", 5)
+	}
+
+	return rubricItem(fmt.Sprintf("Expected '%s', got '%s'", expected, actual), 0)
 }
 
 // EvaluateNonexistentGet checks GET on a nonexistent key
@@ -122,6 +132,7 @@ func EvaluateNonexistentGet(ctx context.Context, program baserubrics.ProgramRunn
 	if err := program.Run(ctx); err != nil {
 		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
+	time.Sleep(restartLoadDelay) // wait for startup prompt so prevOutLen is set correctly in Do()
 	out, err := do(ctx, program, "GET doesnotexist")
 	if err != nil {
 		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
@@ -145,6 +156,7 @@ func EvaluateSetGet(ctx context.Context, program baserubrics.ProgramRunner, bag 
 	if err := program.Run(ctx); err != nil {
 		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
+	time.Sleep(restartLoadDelay) // wait for startup prompt so prevOutLen is set correctly in Do()
 
 	bag[key1] = uuid.New().String()
 
@@ -183,6 +195,7 @@ func EvaluateOverwriteKey(ctx context.Context, program baserubrics.ProgramRunner
 	if err := program.Run(ctx); err != nil {
 		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
+	time.Sleep(restartLoadDelay) // wait for startup prompt so prevOutLen is set correctly in Do()
 
 	// Do SET first
 	bag[key1] = uuid.New().String()
@@ -236,6 +249,7 @@ func EvaluateDeleteExists(ctx context.Context, program baserubrics.ProgramRunner
 	if err := program.Run(ctx); err != nil {
 		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
+	time.Sleep(restartLoadDelay) // wait for startup prompt so prevOutLen is set correctly in Do()
 
 	key := uuid.New().String()
 	value := uuid.New().String()
@@ -322,6 +336,7 @@ func EvaluateMSetMGet(ctx context.Context, program baserubrics.ProgramRunner, ba
 	if err := program.Run(ctx); err != nil {
 		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
+	time.Sleep(restartLoadDelay) // wait for startup prompt so prevOutLen is set correctly in Do()
 
 	keyA := uuid.New().String()
 	keyB := uuid.New().String()
@@ -377,6 +392,7 @@ func EvaluateTTLBasic(ctx context.Context, program baserubrics.ProgramRunner, ba
 	if err := program.Run(ctx); err != nil {
 		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
+	time.Sleep(restartLoadDelay) // wait for startup prompt so prevOutLen is set correctly in Do()
 
 	key := uuid.New().String()
 	value := uuid.New().String()
@@ -466,6 +482,7 @@ func EvaluateRange(ctx context.Context, program baserubrics.ProgramRunner, bag b
 	if err := program.Run(ctx); err != nil {
 		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
+	time.Sleep(restartLoadDelay) // wait for startup prompt so prevOutLen is set correctly in Do()
 
 	// Use deterministic keys for RANGE testing (lexicographic order matters)
 	// Generate unique values but use predictable keys
@@ -537,6 +554,7 @@ func EvaluateTransactions(ctx context.Context, program baserubrics.ProgramRunner
 	if err := program.Run(ctx); err != nil {
 		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
+	time.Sleep(restartLoadDelay) // wait for startup prompt so prevOutLen is set correctly in Do()
 
 	keyAbort := uuid.New().String()
 	valAbort := uuid.New().String()

@@ -2,10 +2,12 @@ module github.com/jh125486/CSCE4350_gradebot
 
 go 1.25.5
 
+replace github.com/jh125486/gradebot => ../gradebot
+
 require (
 	github.com/go-git/go-billy/v5 v5.8.0
 	github.com/google/uuid v1.6.0
-	github.com/jh125486/gradebot v1.4.0
+	github.com/jh125486/gradebot v1.4.1
 	github.com/stretchr/testify v1.11.1
 )
 
@@ -33,7 +35,7 @@ require (
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
-	github.com/mattn/go-runewidth v0.0.20 // indirect
+	github.com/mattn/go-runewidth v0.0.21 // indirect
 	github.com/olekukonko/cat v0.0.0-20250911104152-50322a0618f6 // indirect
 	github.com/olekukonko/errors v1.2.0 // indirect
 	github.com/olekukonko/ll v0.1.7 // indirect
