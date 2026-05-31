@@ -16,6 +16,8 @@ import (
 	baserubrics "github.com/jh125486/gradebot/pkg/rubrics"
 )
 
+const testFilesPresentMsg = "Project contains test files/directories"
+
 // Command constants for KV store operations
 const (
 	constEND = "END"
@@ -79,6 +81,14 @@ func newKVStoreMock(t *testing.T) *kvStoreMock {
 		tempDir:     tempDir,
 		fileCreated: true, // Default to creating files
 	}
+}
+
+func writeProjectFile(t *testing.T, root, relPath, content string) {
+	t.Helper()
+
+	path := filepath.Join(root, relPath)
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
 }
 
 func (m *kvStoreMock) Path() string { return m.tempDir }
@@ -348,6 +358,37 @@ func TestEvaluatePersistenceAfterRestart(t *testing.T) {
 			},
 			wantPoints:     0,
 			wantNoteSubstr: "did not return expected value",
+		},
+		{
+			name: "RetrySucceedsAfterEmptyFirstRead",
+			setupMock: func(m *kvStoreMock) {
+				var storedValue string
+				m.doFuncs = []func(string) ([]string, []string, error){
+					func(input string) ([]string, []string, error) {
+						tokens := strings.Fields(input)
+						if len(tokens) >= 3 {
+							storedValue = tokens[2]
+						}
+						return []string{""}, nil, nil
+					},
+					func(string) ([]string, []string, error) { return []string{}, nil, nil },
+					func(string) ([]string, []string, error) { return []string{storedValue}, nil, nil },
+				}
+			},
+			wantPoints:     5,
+			wantNoteSubstr: "correct value",
+		},
+		{
+			name: "RetryReturnsEmptyOutput",
+			setupMock: func(m *kvStoreMock) {
+				m.doFuncs = []func(string) ([]string, []string, error){
+					func(string) ([]string, []string, error) { return []string{""}, nil, nil },
+					func(string) ([]string, []string, error) { return []string{}, nil, nil },
+					func(string) ([]string, []string, error) { return []string{}, nil, nil },
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "returned empty output",
 		},
 	}
 
@@ -2457,18 +2498,37 @@ func TestTransactionsErrorPaths(t *testing.T) {
 
 func TestEvaluateIncrDecr(t *testing.T) {
 	tests := []struct {
-		name       string
-		store      map[string]string
-		doFuncs    []func(input string) ([]string, []string, error)
-		wantPoints float64
+		name           string
+		store          map[string]string
+		doFuncs        []func(input string) ([]string, []string, error)
+		firstRunErr    error
+		wantPoints     float64
+		wantNoteSubstr string
 	}{
 		{
-			name:       "success",
-			wantPoints: 5,
+			name:           "success",
+			wantPoints:     5,
+			wantNoteSubstr: "INCR and DECR work correctly",
 			doFuncs: []func(string) ([]string, []string, error){
 				func(cmd string) ([]string, []string, error) { return []string{"1"}, nil, nil }, // INCR 1
 				func(cmd string) ([]string, []string, error) { return []string{"2"}, nil, nil }, // INCR 2
 				func(cmd string) ([]string, []string, error) { return []string{"1"}, nil, nil }, // DECR 1
+			},
+		},
+		{
+			name:           "run fails",
+			firstRunErr:    errors.New("run failed"),
+			wantPoints:     0,
+			wantNoteSubstr: msgExecutionFailed,
+		},
+		{
+			name:           "decr returns wrong value",
+			wantPoints:     0,
+			wantNoteSubstr: "DECR returned wrong value",
+			doFuncs: []func(string) ([]string, []string, error){
+				func(string) ([]string, []string, error) { return []string{"1"}, nil, nil },
+				func(string) ([]string, []string, error) { return []string{"2"}, nil, nil },
+				func(string) ([]string, []string, error) { return []string{"0"}, nil, nil },
 			},
 		},
 	}
@@ -2476,31 +2536,55 @@ func TestEvaluateIncrDecr(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			program := &kvStoreMock{
-				store:   tt.store,
-				doFuncs: tt.doFuncs,
+				store:       tt.store,
+				doFuncs:     tt.doFuncs,
+				firstRunErr: tt.firstRunErr,
 			}
 			result := rubrics.EvaluateIncrDecr(context.Background(), program, baserubrics.RunBag{})
-			assert.Equal(t, tt.wantPoints, result.Points)
-			assert.Equal(t, tt.wantPoints, result.Awarded) // In test we want awarded to equal points for success
+			assert.Equal(t, tt.wantPoints, result.Awarded)
+			assert.Contains(t, result.Note, tt.wantNoteSubstr)
 		})
 	}
 }
 
 func TestEvaluateFlushDB(t *testing.T) {
 	tests := []struct {
-		name       string
-		store      map[string]string
-		doFuncs    []func(input string) ([]string, []string, error)
-		wantPoints float64
+		name           string
+		store          map[string]string
+		doFuncs        []func(input string) ([]string, []string, error)
+		wantPoints     float64
+		wantNoteSubstr string
 	}{
 		{
-			name:       "success",
-			wantPoints: 5,
+			name:           "success",
+			wantPoints:     5,
+			wantNoteSubstr: "FLUSHDB clears the database correctly",
 			doFuncs: []func(string) ([]string, []string, error){
 				func(cmd string) ([]string, []string, error) { return []string{""}, nil, nil },    // SET A
 				func(cmd string) ([]string, []string, error) { return []string{""}, nil, nil },    // SET B
 				func(cmd string) ([]string, []string, error) { return []string{"OK"}, nil, nil },  // FLUSHDB
 				func(cmd string) ([]string, []string, error) { return []string{"nil"}, nil, nil }, // GET A should be nil
+			},
+		},
+		{
+			name:           "flushdb fails",
+			wantPoints:     0,
+			wantNoteSubstr: "FLUSHDB failed",
+			doFuncs: []func(string) ([]string, []string, error){
+				func(string) ([]string, []string, error) { return []string{""}, nil, nil },
+				func(string) ([]string, []string, error) { return []string{""}, nil, nil },
+				func(string) ([]string, []string, error) { return nil, nil, errors.New("flush failed") },
+			},
+		},
+		{
+			name:           "get after flush still returns data",
+			wantPoints:     0,
+			wantNoteSubstr: "GET after FLUSHDB should return nil",
+			doFuncs: []func(string) ([]string, []string, error){
+				func(string) ([]string, []string, error) { return []string{""}, nil, nil },
+				func(string) ([]string, []string, error) { return []string{""}, nil, nil },
+				func(string) ([]string, []string, error) { return []string{"OK"}, nil, nil },
+				func(string) ([]string, []string, error) { return []string{"still-present"}, nil, nil },
 			},
 		},
 	}
@@ -2512,8 +2596,257 @@ func TestEvaluateFlushDB(t *testing.T) {
 				doFuncs: tt.doFuncs,
 			}
 			result := rubrics.EvaluateFlushDB(context.Background(), program, baserubrics.RunBag{})
-			assert.Equal(t, tt.wantPoints, result.Points)
 			assert.Equal(t, tt.wantPoints, result.Awarded)
+			assert.Contains(t, result.Note, tt.wantNoteSubstr)
+		})
+	}
+}
+
+func TestEvaluateHashCommands(t *testing.T) {
+	t.Parallel()
+	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
+
+	tests := []struct {
+		name           string
+		setupMock      func(*kvStoreMock)
+		wantPoints     float64
+		wantNoteSubstr string
+	}{
+		{
+			name: "success",
+			setupMock: func(program *kvStoreMock) {
+				program.doFuncs = []func(string) ([]string, []string, error){
+					func(string) ([]string, []string, error) { return []string{"1"}, nil, nil },
+					func(string) ([]string, []string, error) { return []string{"1"}, nil, nil },
+					func(string) ([]string, []string, error) { return []string{"hashval1"}, nil, nil },
+					func(string) ([]string, []string, error) {
+						return []string{"field1 hashval1", "field2 hashval2"}, nil, nil
+					},
+				}
+			},
+			wantPoints:     10,
+			wantNoteSubstr: "Hash commands",
+		},
+		{
+			name: "hget fails",
+			setupMock: func(program *kvStoreMock) {
+				program.doFuncs = []func(string) ([]string, []string, error){
+					func(string) ([]string, []string, error) { return []string{"1"}, nil, nil },
+					func(string) ([]string, []string, error) { return []string{"1"}, nil, nil },
+					func(string) ([]string, []string, error) { return nil, nil, errors.New("hget failed") },
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "HGET failed",
+		},
+		{
+			name: "hgetall misses a field",
+			setupMock: func(program *kvStoreMock) {
+				program.doFuncs = []func(string) ([]string, []string, error){
+					func(string) ([]string, []string, error) { return []string{"1"}, nil, nil },
+					func(string) ([]string, []string, error) { return []string{"1"}, nil, nil },
+					func(string) ([]string, []string, error) { return []string{"hashval1"}, nil, nil },
+					func(string) ([]string, []string, error) { return []string{"field1 hashval1"}, nil, nil },
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "HGETALL returned missing fields",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			program := newKVStoreMock(t)
+			if tt.setupMock != nil {
+				tt.setupMock(program)
+			}
+
+			result := rubrics.EvaluateHashCommands(ctx, program, baserubrics.RunBag{})
+
+			assert.Equal(t, tt.wantPoints, result.Awarded)
+			assert.Contains(t, result.Note, tt.wantNoteSubstr)
+		})
+	}
+}
+
+func TestEvaluateListCommands(t *testing.T) {
+	t.Parallel()
+	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
+
+	tests := []struct {
+		name           string
+		setupMock      func(*kvStoreMock)
+		wantPoints     float64
+		wantNoteSubstr string
+	}{
+		{
+			name: "success",
+			setupMock: func(program *kvStoreMock) {
+				program.doFuncs = []func(string) ([]string, []string, error){
+					func(string) ([]string, []string, error) { return []string{"1"}, nil, nil },
+					func(string) ([]string, []string, error) { return []string{"2"}, nil, nil },
+					func(string) ([]string, []string, error) { return []string{"3"}, nil, nil },
+					func(string) ([]string, []string, error) { return []string{"item3", "item1", "item2"}, nil, nil },
+					func(string) ([]string, []string, error) { return []string{"item3"}, nil, nil },
+				}
+			},
+			wantPoints:     10,
+			wantNoteSubstr: "List commands",
+		},
+		{
+			name: "lrange wrong order",
+			setupMock: func(program *kvStoreMock) {
+				program.doFuncs = []func(string) ([]string, []string, error){
+					func(string) ([]string, []string, error) { return []string{"1"}, nil, nil },
+					func(string) ([]string, []string, error) { return []string{"2"}, nil, nil },
+					func(string) ([]string, []string, error) { return []string{"3"}, nil, nil },
+					func(string) ([]string, []string, error) { return []string{"item1", "item3", "item2"}, nil, nil },
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "LRANGE returned wrong order",
+		},
+		{
+			name: "lpop wrong item",
+			setupMock: func(program *kvStoreMock) {
+				program.doFuncs = []func(string) ([]string, []string, error){
+					func(string) ([]string, []string, error) { return []string{"1"}, nil, nil },
+					func(string) ([]string, []string, error) { return []string{"2"}, nil, nil },
+					func(string) ([]string, []string, error) { return []string{"3"}, nil, nil },
+					func(string) ([]string, []string, error) { return []string{"item3", "item1", "item2"}, nil, nil },
+					func(string) ([]string, []string, error) { return []string{"item1"}, nil, nil },
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "LPOP returned wrong item",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			program := newKVStoreMock(t)
+			if tt.setupMock != nil {
+				tt.setupMock(program)
+			}
+
+			result := rubrics.EvaluateListCommands(ctx, program, baserubrics.RunBag{})
+
+			assert.Equal(t, tt.wantPoints, result.Awarded)
+			assert.Contains(t, result.Note, tt.wantNoteSubstr)
+		})
+	}
+}
+
+func TestEvaluateProjectCI(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		setupMock      func(t *testing.T, root string)
+		wantPoints     float64
+		wantNoteSubstr string
+	}{
+		{
+			name: "workflow lint step alone earns full credit",
+			setupMock: func(t *testing.T, root string) {
+				writeProjectFile(t, root, ".github/workflows/test.yml", "name: ci\nsteps:\n  - run: make lint\n")
+			},
+			wantPoints:     5,
+			wantNoteSubstr: "GitHub Actions and Linting configured",
+		},
+		{
+			name: "workflow without lint earns partial credit",
+			setupMock: func(t *testing.T, root string) {
+				writeProjectFile(t, root, ".github/workflows/test.yml", "name: ci\nsteps:\n  - run: go test ./...\n")
+			},
+			wantPoints:     2.5,
+			wantNoteSubstr: "Missing Linting Configuration or CI Linting step",
+		},
+		{
+			name: "fallback makefile lint earns partial credit",
+			setupMock: func(t *testing.T, root string) {
+				writeProjectFile(t, root, "Makefile", "lint:\n\tgolangci-lint run\n")
+			},
+			wantPoints:     2.5,
+			wantNoteSubstr: "Missing GitHub Actions",
+		},
+		{
+			name: "no ci config earns zero",
+			setupMock: func(t *testing.T, root string) {
+				writeProjectFile(t, root, "README.md", "hello\n")
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "Missing GitHub Actions",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			if tt.setupMock != nil {
+				tt.setupMock(t, root)
+			}
+
+			program := &kvStoreMock{tempDir: root}
+			result := rubrics.EvaluateProjectCI(context.Background(), program, baserubrics.RunBag{})
+
+			assert.Equal(t, tt.wantPoints, result.Awarded)
+			assert.Contains(t, result.Note, tt.wantNoteSubstr)
+		})
+	}
+}
+
+func TestEvaluateTestsPresent(t *testing.T) {
+	tests := []struct {
+		name       string
+		setupMock  func(t *testing.T, dir string)
+		wantPoints float64
+		wantNote   string
+	}{
+		{
+			name: "no tests",
+			setupMock: func(t *testing.T, dir string) {
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main"), 0o644))
+			},
+			wantPoints: 0,
+			wantNote:   "No test files detected",
+		},
+		{
+			name: "go tests",
+			setupMock: func(t *testing.T, dir string) {
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "main_test.go"), []byte("package main"), 0o644))
+			},
+			wantPoints: 5,
+			wantNote:   testFilesPresentMsg,
+		},
+		{
+			name: "python tests",
+			setupMock: func(t *testing.T, dir string) {
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "test_main.py"), []byte(""), 0o644))
+			},
+			wantPoints: 5,
+			wantNote:   testFilesPresentMsg,
+		},
+		{
+			name: "tests directory",
+			setupMock: func(t *testing.T, dir string) {
+				require.NoError(t, os.MkdirAll(filepath.Join(dir, "tests"), 0o755))
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "tests", "dummy.txt"), []byte(""), 0o644))
+			},
+			wantPoints: 5,
+			wantNote:   testFilesPresentMsg,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := newKVStoreMock(t)
+			tt.setupMock(t, mock.tempDir)
+
+			result := rubrics.EvaluateTestsPresent(context.Background(), mock, make(baserubrics.RunBag))
+
+			assert.Equal(t, tt.wantPoints, result.Awarded)
+			assert.Contains(t, result.Note, tt.wantNote)
 		})
 	}
 }

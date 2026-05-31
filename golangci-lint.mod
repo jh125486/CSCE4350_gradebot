@@ -1,16 +1,13 @@
-module github.com/jh125486/CSCE4350_gradebot/golangci-lint
+module github.com/jh125486/CSCE4350_gradebot
 
 go 1.25.5
 
 tool github.com/golangci/golangci-lint/v2/cmd/golangci-lint
 
-replace github.com/jh125486/CSCE4350_gradebot => ./
-
 require (
 	github.com/go-git/go-billy/v5 v5.9.0
 	github.com/google/uuid v1.6.0
-	github.com/jh125486/CSCE4350_gradebot v0.0.0-00010101000000-000000000000
-	github.com/jh125486/gradebot v1.4.3
+	github.com/jh125486/gradebot v1.5.0
 	github.com/stretchr/testify v1.11.1
 )
 
