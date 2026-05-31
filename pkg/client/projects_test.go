@@ -13,6 +13,8 @@ import (
 	clientpkg "github.com/jh125486/CSCE4350_gradebot/pkg/client"
 )
 
+const echoTestCmd = "echo test"
+
 // TestExecuteProject1 is a comprehensive table-driven test for ExecuteProject1 function.
 // It covers all edge cases: nil inputs, cancelled context, various config combinations,
 // and verifies proper error handling.
@@ -49,7 +51,7 @@ func TestExecuteProject1(t *testing.T) {
 				ctx: nil,
 				cfg: &client.Config{
 					WorkDir: client.WorkDir(t.TempDir()),
-					RunCmd:  "echo test",
+					RunCmd:  echoTestCmd,
 					Writer:  io.Discard,
 				},
 			},
@@ -77,7 +79,7 @@ func TestExecuteProject1(t *testing.T) {
 			args: args{
 				cfg: &client.Config{
 					WorkDir: client.WorkDir(t.TempDir()),
-					RunCmd:  "echo test",
+					RunCmd:  echoTestCmd,
 					Writer:  io.Discard,
 				},
 			},
@@ -90,7 +92,7 @@ func TestExecuteProject1(t *testing.T) {
 			args: args{
 				cfg: &client.Config{
 					WorkDir: "",
-					RunCmd:  "echo test",
+					RunCmd:  echoTestCmd,
 					Writer:  io.Discard,
 				},
 			},
@@ -103,7 +105,7 @@ func TestExecuteProject1(t *testing.T) {
 			args: args{
 				cfg: &client.Config{
 					WorkDir: client.WorkDir(t.TempDir()),
-					RunCmd:  "echo test",
+					RunCmd:  echoTestCmd,
 					Writer:  io.Discard,
 					Reader:  nil,
 				},
@@ -117,7 +119,7 @@ func TestExecuteProject1(t *testing.T) {
 			args: args{
 				cfg: &client.Config{
 					WorkDir: client.WorkDir(t.TempDir()),
-					RunCmd:  "echo test",
+					RunCmd:  echoTestCmd,
 					Writer:  io.Discard,
 					Reader:  nil,
 				},
@@ -133,7 +135,7 @@ func TestExecuteProject1(t *testing.T) {
 			args: args{
 				cfg: &client.Config{
 					WorkDir: client.WorkDir(t.TempDir()),
-					RunCmd:  "echo test",
+					RunCmd:  echoTestCmd,
 					Writer:  io.Discard,
 				},
 			},

@@ -17,6 +17,9 @@ import (
 )
 
 const (
+	// constEND is the end marker for range.
+	constEND = "END"
+
 	// DataFileName is the name of the database file created by the program.
 	DataFileName = "data.db"
 	// expiryCheckDelay is the time to wait for key expiration to take effect.
@@ -41,7 +44,7 @@ func trimPromptChars(s string) string {
 
 // newRubricItem creates a helper function for building rubric items with a fixed name and points
 //
-//nolint:unparam // points varies across different evaluators
+
 func newRubricItem(name string, points float64) func(string, float64) baserubrics.RubricItem {
 	return func(msg string, awarded float64) baserubrics.RubricItem {
 		return baserubrics.RubricItem{
@@ -516,9 +519,9 @@ func EvaluateRange(ctx context.Context, program baserubrics.ProgramRunner, bag b
 		cmd      string
 		expected []string
 	}{
-		{"RANGE b d", []string{"b", "c", "d", "END"}},
-		{`RANGE "" c`, []string{"a", "b", "c", "END"}},
-		{`RANGE d ""`, []string{"d", "e", "END"}},
+		{"RANGE b d", []string{"b", "c", "d", constEND}},
+		{`RANGE "" c`, []string{"a", "b", "c", constEND}},
+		{`RANGE d ""`, []string{"d", "e", constEND}},
 	}
 
 	for _, test := range rangeTests {
@@ -650,4 +653,298 @@ func testCommitTxn(ctx context.Context, program baserubrics.ProgramRunner, key, 
 		return fmt.Sprintf("GET after restart should return '%s', got '%v'", value, out), false
 	}
 	return "", true
+}
+
+// EvaluateHashCommands checks HSET, HGET, and HGETALL commands
+func EvaluateHashCommands(ctx context.Context, program baserubrics.ProgramRunner, bag baserubrics.RunBag) baserubrics.RubricItem {
+	rubricItem := newRubricItem("HashCommands", 10)
+	if err := program.Run(ctx); err != nil {
+		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
+	}
+	time.Sleep(restartLoadDelay) // wait for startup prompt so prevOutLen is set correctly in Do()
+
+	hashKey := uuid.New().String()
+	field1 := "field1"
+	val1 := "hashval1"
+	field2 := "field2"
+	val2 := "hashval2"
+
+	bag["hash_key"] = hashKey
+
+	// HSET hashKey field1 val1
+	if _, err := do(ctx, program, fmt.Sprintf("HSET %s %s %s", hashKey, field1, val1)); err != nil {
+		return rubricItem(fmt.Sprintf("HSET failed: %v", err), 0)
+	}
+
+	// HSET hashKey field2 val2
+	if _, err := do(ctx, program, fmt.Sprintf("HSET %s %s %s", hashKey, field2, val2)); err != nil {
+		return rubricItem(fmt.Sprintf("HSET failed: %v", err), 0)
+	}
+
+	// HGET hashKey field1
+	out, err := do(ctx, program, fmt.Sprintf("HGET %s %s", hashKey, field1))
+	if err != nil {
+		return rubricItem(fmt.Sprintf("HGET failed: %v", err), 0)
+	}
+	if len(out) == 0 || !strings.Contains(out[0], val1) {
+		return rubricItem(fmt.Sprintf("HGET returned wrong value, expected '%s', got '%v'", val1, out), 0)
+	}
+
+	// HGETALL hashKey
+	out, err = do(ctx, program, fmt.Sprintf("HGETALL %s", hashKey))
+	if err != nil {
+		return rubricItem(fmt.Sprintf("HGETALL failed: %v", err), 0)
+	}
+	outStr := strings.Join(out, " ")
+	if !strings.Contains(outStr, field1) || !strings.Contains(outStr, val1) ||
+		!strings.Contains(outStr, field2) || !strings.Contains(outStr, val2) {
+		return rubricItem(fmt.Sprintf("HGETALL returned missing fields or values, got '%v'", out), 0)
+	}
+
+	return rubricItem("Hash commands (HSET, HGET, HGETALL) work correctly", 10)
+}
+
+// EvaluateListCommands checks list operations LPUSH, RPUSH, LRANGE
+func EvaluateListCommands(ctx context.Context, program baserubrics.ProgramRunner, _ baserubrics.RunBag) baserubrics.RubricItem {
+	rubricItem := newRubricItem("ListCommands", 10)
+	if err := program.Run(ctx); err != nil {
+		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
+	}
+	time.Sleep(restartLoadDelay)
+
+	key := uuid.New().String()
+	val1 := "item1"
+	val2 := "item2"
+	val3 := "item3"
+
+	// LPUSH key item1
+	if _, err := do(ctx, program, fmt.Sprintf("LPUSH %s %s", key, val1)); err != nil {
+		return rubricItem(fmt.Sprintf("LPUSH failed: %v", err), 0)
+	}
+	// RPUSH key item2
+	if _, err := do(ctx, program, fmt.Sprintf("RPUSH %s %s", key, val2)); err != nil {
+		return rubricItem(fmt.Sprintf("RPUSH failed: %v", err), 0)
+	}
+	// LPUSH key item3
+	if _, err := do(ctx, program, fmt.Sprintf("LPUSH %s %s", key, val3)); err != nil {
+		return rubricItem(fmt.Sprintf("LPUSH failed: %v", err), 0)
+	}
+
+	// Now list is: item3, item1, item2
+	// LRANGE key 0 -1
+	out, err := do(ctx, program, fmt.Sprintf("LRANGE %s 0 -1", key))
+	if err != nil {
+		return rubricItem(fmt.Sprintf("LRANGE failed: %v", err), 0)
+	}
+
+	if len(out) < 3 {
+		return rubricItem(fmt.Sprintf("LRANGE returned wrong number of items: got %v", out), 0)
+	}
+
+	// Make sure the order is correct
+	if !strings.Contains(out[0], val3) || !strings.Contains(out[1], val1) || !strings.Contains(out[2], val2) {
+		return rubricItem(fmt.Sprintf("LRANGE returned wrong order, expected [%s, %s, %s] got %v", val3, val1, val2, out), 0)
+	}
+
+	// LPOP key
+	out, err = do(ctx, program, fmt.Sprintf("LPOP %s", key))
+	if err != nil {
+		return rubricItem(fmt.Sprintf("LPOP failed: %v", err), 0)
+	}
+	if len(out) == 0 || !strings.Contains(out[0], val3) {
+		return rubricItem(fmt.Sprintf("LPOP returned wrong item, expected %s got %v", val3, out), 0)
+	}
+
+	return rubricItem("List commands (LPUSH, RPUSH, LRANGE, LPOP) work correctly", 10)
+}
+
+// hasCILintingStep checks if a workflow definition has linting steps.
+func hasCILintingStep(workflowsPath, entryName string) bool {
+	content, err := os.ReadFile(filepath.Join(workflowsPath, entryName))
+	if err != nil {
+		return false
+	}
+	contentStr := strings.ToLower(string(content))
+	return strings.Contains(contentStr, "lint") || strings.Contains(contentStr, "flake8") ||
+		strings.Contains(contentStr, "ruff") || strings.Contains(contentStr, "black") ||
+		strings.Contains(contentStr, "fmt") || strings.Contains(contentStr, "clippy") ||
+		strings.Contains(contentStr, "checkstyle") || strings.Contains(contentStr, "eslint") ||
+		strings.Contains(contentStr, "prettier") || strings.Contains(contentStr, "clang-tidy") ||
+		strings.Contains(contentStr, "clang-format")
+}
+
+// checkGithubActions checks for actions and linting step.
+func checkGithubActions(programPath string) (hasActions, hasGolangCI bool) {
+	hasActions = false
+	hasGolangCI = false
+	workflowsPath := filepath.Join(programPath, ".github", "workflows")
+	entries, err := os.ReadDir(workflowsPath)
+	if err == nil {
+		for _, entry := range entries {
+			if !entry.IsDir() && (strings.HasSuffix(entry.Name(), ".yml") || strings.HasSuffix(entry.Name(), ".yaml")) {
+				hasActions = true
+				if hasCILintingStep(workflowsPath, entry.Name()) {
+					hasGolangCI = true
+				}
+			}
+		}
+	}
+	return hasActions, hasGolangCI
+}
+
+// checkLintConfig checks for local lint config files.
+func checkLintConfig(programPath string) bool {
+	lintFiles := []string{
+		".flake8", ".pylintrc", "pyproject.toml", "tox.ini", "setup.cfg",
+		".eslintrc", ".eslintrc.js", ".eslintrc.json", ".eslintrc.yml", ".prettierrc", ".prettierrc.json",
+		".clang-format", ".clang-tidy", "CPPLINT.cfg",
+		"checkstyle.xml",
+		".golangci.yml", ".golangci.yaml",
+		"rustfmt.toml", ".rustfmt.toml", "clippy.toml",
+	}
+	for _, lf := range lintFiles {
+		if _, err := os.Stat(filepath.Join(programPath, lf)); err == nil {
+			return true
+		}
+	}
+
+	if checkFallbackRequirements(programPath, "requirements.txt", []string{"flake8", "pylint", "black", "ruff"}) {
+		return true
+	}
+	if checkFallbackRequirements(programPath, "package.json", []string{"eslint", "prettier"}) {
+		return true
+	}
+	if checkFallbackRequirements(programPath, "pom.xml", []string{"checkstyle", "spotbugs"}) {
+		return true
+	}
+	if checkFallbackRequirements(programPath, "Makefile", []string{"lint", "fmt", "checkstyle", "clippy"}) {
+		return true
+	}
+	return false
+}
+
+// checkFallbackRequirements checks words within a file.
+func checkFallbackRequirements(programPath, fileName string, terms []string) bool {
+	content, err := os.ReadFile(filepath.Join(programPath, fileName))
+	if err != nil {
+		return false
+	}
+	contentStr := strings.ToLower(string(content))
+	for _, term := range terms {
+		if strings.Contains(contentStr, term) {
+			return true
+		}
+	}
+	return false
+}
+
+// EvaluateProjectCI checks if projects have GitHub Actions and linting configured.
+func EvaluateProjectCI(_ context.Context, program baserubrics.ProgramRunner, _ baserubrics.RunBag) baserubrics.RubricItem {
+	rubricItem := newRubricItem("ProjectCI", 5)
+
+	hasActions, hasGolangCI := checkGithubActions(program.Path())
+	hasLintConfig := checkLintConfig(program.Path())
+
+	hasLinting := hasLintConfig || hasGolangCI
+
+	if hasActions && hasLinting {
+		return rubricItem("Project has GitHub Actions and Linting configured", 5)
+	}
+
+	notes := []string{}
+	if !hasActions {
+		notes = append(notes, "Missing GitHub Actions (.github/workflows/*.yml)")
+	}
+	if !hasLinting {
+		notes = append(notes, "Missing Linting Configuration or CI Linting step")
+	}
+
+	points := 0.0
+	if hasActions || hasLinting {
+		points = 2.5
+	}
+
+	return rubricItem(strings.Join(notes, ", "), points)
+}
+
+// EvaluateIncrDecr checks INCR and DECR commands
+func EvaluateIncrDecr(ctx context.Context, program baserubrics.ProgramRunner, _ baserubrics.RunBag) baserubrics.RubricItem {
+	rubricItem := newRubricItem("IncrDecr", 5)
+	if err := program.Run(ctx); err != nil {
+		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
+	}
+	time.Sleep(restartLoadDelay)
+
+	key := uuid.New().String()
+
+	// INCR key (should return 1)
+	out, err := do(ctx, program, fmt.Sprintf("INCR %s", key))
+	if err != nil {
+		return rubricItem(fmt.Sprintf("INCR failed: %v", err), 0)
+	}
+	if len(out) == 0 || !strings.Contains(out[0], "1") {
+		return rubricItem(fmt.Sprintf("INCR returned wrong value, expected '1', got '%v'", out), 0)
+	}
+
+	// INCR key (should return 2)
+	out, err = do(ctx, program, fmt.Sprintf("INCR %s", key))
+	if err != nil {
+		return rubricItem(fmt.Sprintf("INCR failed: %v", err), 0)
+	}
+	if len(out) == 0 || !strings.Contains(out[0], "2") {
+		return rubricItem(fmt.Sprintf("INCR returned wrong value, expected '2', got '%v'", out), 0)
+	}
+
+	// DECR key (should return 1)
+	out, err = do(ctx, program, fmt.Sprintf("DECR %s", key))
+	if err != nil {
+		return rubricItem(fmt.Sprintf("DECR failed: %v", err), 0)
+	}
+	if len(out) == 0 || !strings.Contains(out[0], "1") {
+		return rubricItem(fmt.Sprintf("DECR returned wrong value, expected '1', got '%v'", out), 0)
+	}
+
+	return rubricItem("INCR and DECR work correctly", 5)
+}
+
+// EvaluateFlushDB checks FLUSHDB command
+func EvaluateFlushDB(ctx context.Context, program baserubrics.ProgramRunner, _ baserubrics.RunBag) baserubrics.RubricItem {
+	rubricItem := newRubricItem("FlushDB", 5)
+	if err := program.Run(ctx); err != nil {
+		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
+	}
+	time.Sleep(restartLoadDelay)
+
+	keyA := uuid.New().String()
+	valA := uuid.New().String()
+	keyB := uuid.New().String()
+	valB := uuid.New().String()
+
+	// SET multiple keys
+	if _, err := do(ctx, program, fmt.Sprintf("SET %s %s", keyA, valA)); err != nil {
+		return rubricItem(fmt.Sprintf("SET failed: %v", err), 0)
+	}
+	if _, err := do(ctx, program, fmt.Sprintf("SET %s %s", keyB, valB)); err != nil {
+		return rubricItem(fmt.Sprintf("SET failed: %v", err), 0)
+	}
+
+	// FLUSHDB
+	_, err := do(ctx, program, "FLUSHDB")
+	if err != nil {
+		return rubricItem(fmt.Sprintf("FLUSHDB failed: %v", err), 0)
+	}
+
+	// GET keys - should be nil
+	out, err := do(ctx, program, fmt.Sprintf("GET %s", keyA))
+	if err != nil {
+		return rubricItem(fmt.Sprintf("GET failed: %v", err), 0)
+	}
+	if len(out) > 0 {
+		trimmed := strings.TrimSpace(out[0])
+		if !strings.Contains(strings.ToLower(trimmed), "nil") && trimPromptChars(trimmed) != "" {
+			return rubricItem(fmt.Sprintf("GET after FLUSHDB should return nil, got '%s'", trimmed), 0)
+		}
+	}
+
+	return rubricItem("FLUSHDB clears the database correctly", 5)
 }
