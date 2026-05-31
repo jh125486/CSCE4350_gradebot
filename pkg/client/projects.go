@@ -26,5 +26,16 @@ func ExecuteProject1(ctx context.Context, cfg *client.Config) error {
 		rubrics.EvaluateOverwriteKey,
 		rubrics.EvaluateNonexistentGet,
 		rubrics.EvaluatePersistenceAfterRestart,
+		rubrics.EvaluateDeleteExists,
+		rubrics.EvaluateMSetMGet,
+		rubrics.EvaluateTTLBasic,
+		rubrics.EvaluateRange,
+		rubrics.EvaluateTransactions,
+		rubrics.EvaluateHashCommands,
+		rubrics.EvaluateListCommands,
+		rubrics.EvaluateIncrDecr,
+		rubrics.EvaluateFlushDB,
+		rubrics.EvaluateProjectCI,
+		rubrics.EvaluateTestsPresent,
 	)
 }
