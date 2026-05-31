@@ -2522,6 +2522,33 @@ func TestEvaluateIncrDecr(t *testing.T) {
 			wantNoteSubstr: msgExecutionFailed,
 		},
 		{
+			name:           "first incr fails",
+			wantPoints:     0,
+			wantNoteSubstr: "INCR failed",
+			doFuncs: []func(string) ([]string, []string, error){
+				func(string) ([]string, []string, error) { return nil, nil, errors.New("incr failed") },
+			},
+		},
+		{
+			name:           "second incr fails",
+			wantPoints:     0,
+			wantNoteSubstr: "INCR failed",
+			doFuncs: []func(string) ([]string, []string, error){
+				func(string) ([]string, []string, error) { return []string{"1"}, nil, nil },
+				func(string) ([]string, []string, error) { return nil, nil, errors.New("incr failed") },
+			},
+		},
+		{
+			name:           "decr fails",
+			wantPoints:     0,
+			wantNoteSubstr: "DECR failed",
+			doFuncs: []func(string) ([]string, []string, error){
+				func(string) ([]string, []string, error) { return []string{"1"}, nil, nil },
+				func(string) ([]string, []string, error) { return []string{"2"}, nil, nil },
+				func(string) ([]string, []string, error) { return nil, nil, errors.New("decr failed") },
+			},
+		},
+		{
 			name:           "decr returns wrong value",
 			wantPoints:     0,
 			wantNoteSubstr: "DECR returned wrong value",
@@ -2529,6 +2556,23 @@ func TestEvaluateIncrDecr(t *testing.T) {
 				func(string) ([]string, []string, error) { return []string{"1"}, nil, nil },
 				func(string) ([]string, []string, error) { return []string{"2"}, nil, nil },
 				func(string) ([]string, []string, error) { return []string{"0"}, nil, nil },
+			},
+		},
+		{
+			name:           "first incr wrong value",
+			wantPoints:     0,
+			wantNoteSubstr: "INCR returned wrong value, expected '1'",
+			doFuncs: []func(string) ([]string, []string, error){
+				func(string) ([]string, []string, error) { return []string{"9"}, nil, nil },
+			},
+		},
+		{
+			name:           "second incr wrong value",
+			wantPoints:     0,
+			wantNoteSubstr: "INCR returned wrong value, expected '2'",
+			doFuncs: []func(string) ([]string, []string, error){
+				func(string) ([]string, []string, error) { return []string{"1"}, nil, nil },
+				func(string) ([]string, []string, error) { return []string{"9"}, nil, nil },
 			},
 		},
 	}
@@ -2552,6 +2596,7 @@ func TestEvaluateFlushDB(t *testing.T) {
 		name           string
 		store          map[string]string
 		doFuncs        []func(input string) ([]string, []string, error)
+		firstRunErr    error
 		wantPoints     float64
 		wantNoteSubstr string
 	}{
@@ -2587,13 +2632,48 @@ func TestEvaluateFlushDB(t *testing.T) {
 				func(string) ([]string, []string, error) { return []string{"still-present"}, nil, nil },
 			},
 		},
+		{
+			name:           "run fails",
+			wantPoints:     0,
+			wantNoteSubstr: msgExecutionFailed,
+			firstRunErr:    errors.New("run failed"),
+		},
+		{
+			name:           "first set fails",
+			wantPoints:     0,
+			wantNoteSubstr: "SET failed",
+			doFuncs: []func(string) ([]string, []string, error){
+				func(string) ([]string, []string, error) { return nil, nil, errors.New("set failed") },
+			},
+		},
+		{
+			name:           "second set fails",
+			wantPoints:     0,
+			wantNoteSubstr: "SET failed",
+			doFuncs: []func(string) ([]string, []string, error){
+				func(string) ([]string, []string, error) { return []string{""}, nil, nil },
+				func(string) ([]string, []string, error) { return nil, nil, errors.New("set failed") },
+			},
+		},
+		{
+			name:           "get after flush errors",
+			wantPoints:     0,
+			wantNoteSubstr: "GET failed",
+			doFuncs: []func(string) ([]string, []string, error){
+				func(string) ([]string, []string, error) { return []string{""}, nil, nil },
+				func(string) ([]string, []string, error) { return []string{""}, nil, nil },
+				func(string) ([]string, []string, error) { return []string{"OK"}, nil, nil },
+				func(string) ([]string, []string, error) { return nil, nil, errors.New("get failed") },
+			},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			program := &kvStoreMock{
-				store:   tt.store,
-				doFuncs: tt.doFuncs,
+				store:       tt.store,
+				doFuncs:     tt.doFuncs,
+				firstRunErr: tt.firstRunErr,
 			}
 			result := rubrics.EvaluateFlushDB(context.Background(), program, baserubrics.RunBag{})
 			assert.Equal(t, tt.wantPoints, result.Awarded)
@@ -2638,6 +2718,60 @@ func TestEvaluateHashCommands(t *testing.T) {
 			},
 			wantPoints:     0,
 			wantNoteSubstr: "HGET failed",
+		},
+		{
+			name: "run fails",
+			setupMock: func(program *kvStoreMock) {
+				program.firstRunErr = errors.New("run failed")
+			},
+			wantPoints:     0,
+			wantNoteSubstr: msgExecutionFailed,
+		},
+		{
+			name: "first hset fails",
+			setupMock: func(program *kvStoreMock) {
+				program.doFuncs = []func(string) ([]string, []string, error){
+					func(string) ([]string, []string, error) { return nil, nil, errors.New("hset failed") },
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "HSET failed",
+		},
+		{
+			name: "second hset fails",
+			setupMock: func(program *kvStoreMock) {
+				program.doFuncs = []func(string) ([]string, []string, error){
+					func(string) ([]string, []string, error) { return []string{"1"}, nil, nil },
+					func(string) ([]string, []string, error) { return nil, nil, errors.New("hset failed") },
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "HSET failed",
+		},
+		{
+			name: "hget wrong value",
+			setupMock: func(program *kvStoreMock) {
+				program.doFuncs = []func(string) ([]string, []string, error){
+					func(string) ([]string, []string, error) { return []string{"1"}, nil, nil },
+					func(string) ([]string, []string, error) { return []string{"1"}, nil, nil },
+					func(string) ([]string, []string, error) { return []string{"other"}, nil, nil },
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "HGET returned wrong value",
+		},
+		{
+			name: "hgetall fails",
+			setupMock: func(program *kvStoreMock) {
+				program.doFuncs = []func(string) ([]string, []string, error){
+					func(string) ([]string, []string, error) { return []string{"1"}, nil, nil },
+					func(string) ([]string, []string, error) { return []string{"1"}, nil, nil },
+					func(string) ([]string, []string, error) { return []string{"hashval1"}, nil, nil },
+					func(string) ([]string, []string, error) { return nil, nil, errors.New("hgetall failed") },
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "HGETALL failed",
 		},
 		{
 			name: "hgetall misses a field",
@@ -2707,6 +2841,87 @@ func TestEvaluateListCommands(t *testing.T) {
 			wantNoteSubstr: "LRANGE returned wrong order",
 		},
 		{
+			name: "run fails",
+			setupMock: func(program *kvStoreMock) {
+				program.firstRunErr = errors.New("run failed")
+			},
+			wantPoints:     0,
+			wantNoteSubstr: msgExecutionFailed,
+		},
+		{
+			name: "first lpush fails",
+			setupMock: func(program *kvStoreMock) {
+				program.doFuncs = []func(string) ([]string, []string, error){
+					func(string) ([]string, []string, error) { return nil, nil, errors.New("lpush failed") },
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "LPUSH failed",
+		},
+		{
+			name: "rpush fails",
+			setupMock: func(program *kvStoreMock) {
+				program.doFuncs = []func(string) ([]string, []string, error){
+					func(string) ([]string, []string, error) { return []string{"1"}, nil, nil },
+					func(string) ([]string, []string, error) { return nil, nil, errors.New("rpush failed") },
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "RPUSH failed",
+		},
+		{
+			name: "second lpush fails",
+			setupMock: func(program *kvStoreMock) {
+				program.doFuncs = []func(string) ([]string, []string, error){
+					func(string) ([]string, []string, error) { return []string{"1"}, nil, nil },
+					func(string) ([]string, []string, error) { return []string{"2"}, nil, nil },
+					func(string) ([]string, []string, error) { return nil, nil, errors.New("lpush failed") },
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "LPUSH failed",
+		},
+		{
+			name: "lrange fails",
+			setupMock: func(program *kvStoreMock) {
+				program.doFuncs = []func(string) ([]string, []string, error){
+					func(string) ([]string, []string, error) { return []string{"1"}, nil, nil },
+					func(string) ([]string, []string, error) { return []string{"2"}, nil, nil },
+					func(string) ([]string, []string, error) { return []string{"3"}, nil, nil },
+					func(string) ([]string, []string, error) { return nil, nil, errors.New("lrange failed") },
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "LRANGE failed",
+		},
+		{
+			name: "lrange too short",
+			setupMock: func(program *kvStoreMock) {
+				program.doFuncs = []func(string) ([]string, []string, error){
+					func(string) ([]string, []string, error) { return []string{"1"}, nil, nil },
+					func(string) ([]string, []string, error) { return []string{"2"}, nil, nil },
+					func(string) ([]string, []string, error) { return []string{"3"}, nil, nil },
+					func(string) ([]string, []string, error) { return []string{"item3", "item1"}, nil, nil },
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "LRANGE returned wrong number of items",
+		},
+		{
+			name: "lpop fails",
+			setupMock: func(program *kvStoreMock) {
+				program.doFuncs = []func(string) ([]string, []string, error){
+					func(string) ([]string, []string, error) { return []string{"1"}, nil, nil },
+					func(string) ([]string, []string, error) { return []string{"2"}, nil, nil },
+					func(string) ([]string, []string, error) { return []string{"3"}, nil, nil },
+					func(string) ([]string, []string, error) { return []string{"item3", "item1", "item2"}, nil, nil },
+					func(string) ([]string, []string, error) { return nil, nil, errors.New("lpop failed") },
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "LPOP failed",
+		},
+		{
 			name: "lpop wrong item",
 			setupMock: func(program *kvStoreMock) {
 				program.doFuncs = []func(string) ([]string, []string, error){
@@ -2768,6 +2983,61 @@ func TestEvaluateProjectCI(t *testing.T) {
 				writeProjectFile(t, root, "Makefile", "lint:\n\tgolangci-lint run\n")
 			},
 			wantPoints:     2.5,
+			wantNoteSubstr: "Missing GitHub Actions",
+		},
+		{
+			name: "fallback requirements lint earns partial credit",
+			setupMock: func(t *testing.T, root string) {
+				writeProjectFile(t, root, "requirements.txt", "ruff==0.1.0\n")
+			},
+			wantPoints:     2.5,
+			wantNoteSubstr: "Missing GitHub Actions",
+		},
+		{
+			name: "fallback package json lint earns partial credit",
+			setupMock: func(t *testing.T, root string) {
+				writeProjectFile(t, root, "package.json", "{\n  \"devDependencies\": {\n    \"eslint\": \"9.0.0\"\n  }\n}\n")
+			},
+			wantPoints:     2.5,
+			wantNoteSubstr: "Missing GitHub Actions",
+		},
+		{
+			name: "fallback pom lint earns partial credit",
+			setupMock: func(t *testing.T, root string) {
+				writeProjectFile(t, root, "pom.xml", "<project><artifactId>x</artifactId><plugins>checkstyle</plugins></project>")
+			},
+			wantPoints:     2.5,
+			wantNoteSubstr: "Missing GitHub Actions",
+		},
+		{
+			name: "lint config file earns partial credit",
+			setupMock: func(t *testing.T, root string) {
+				writeProjectFile(t, root, ".golangci.yml", "run:\n  timeout: 5m\n")
+			},
+			wantPoints:     2.5,
+			wantNoteSubstr: "Missing GitHub Actions",
+		},
+		{
+			name: "unreadable workflow still counts actions",
+			setupMock: func(t *testing.T, root string) {
+				wf := filepath.Join(root, ".github", "workflows", "ci.yml")
+				writeProjectFile(t, root, ".github/workflows/ci.yml", "name: ci\nsteps:\n  - run: make lint\n")
+				require.NoError(t, os.Chmod(wf, 0o000))
+				t.Cleanup(func() {
+					_ = os.Chmod(wf, 0o644)
+				})
+			},
+			wantPoints:     2.5,
+			wantNoteSubstr: "Missing Linting Configuration or CI Linting step",
+		},
+		{
+			name: "fallback files without lint terms earn zero",
+			setupMock: func(t *testing.T, root string) {
+				writeProjectFile(t, root, "requirements.txt", "requests==2.31.0\n")
+				writeProjectFile(t, root, "package.json", "{\n  \"name\": \"demo\"\n}\n")
+				writeProjectFile(t, root, "pom.xml", "<project><artifactId>x</artifactId></project>")
+			},
+			wantPoints:     0,
 			wantNoteSubstr: "Missing GitHub Actions",
 		},
 		{
@@ -2835,6 +3105,48 @@ func TestEvaluateTestsPresent(t *testing.T) {
 			},
 			wantPoints: 5,
 			wantNote:   testFilesPresentMsg,
+		},
+		{
+			name: "spec directory",
+			setupMock: func(t *testing.T, dir string) {
+				require.NoError(t, os.MkdirAll(filepath.Join(dir, "spec"), 0o755))
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "spec", "dummy.txt"), []byte(""), 0o644))
+			},
+			wantPoints: 5,
+			wantNote:   testFilesPresentMsg,
+		},
+		{
+			name: "javascript spec file",
+			setupMock: func(t *testing.T, dir string) {
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "math.spec.js"), []byte(""), 0o644))
+			},
+			wantPoints: 5,
+			wantNote:   testFilesPresentMsg,
+		},
+		{
+			name: "git dir is skipped",
+			setupMock: func(t *testing.T, dir string) {
+				require.NoError(t, os.MkdirAll(filepath.Join(dir, ".git"), 0o755))
+				require.NoError(t, os.WriteFile(filepath.Join(dir, ".git", "config"), []byte("[core]\n"), 0o644))
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main"), 0o644))
+			},
+			wantPoints: 0,
+			wantNote:   "No test files detected",
+		},
+		{
+			name: "walk callback error is ignored",
+			setupMock: func(t *testing.T, dir string) {
+				blocked := filepath.Join(dir, "blocked")
+				require.NoError(t, os.MkdirAll(blocked, 0o755))
+				require.NoError(t, os.WriteFile(filepath.Join(blocked, "file.txt"), []byte("x"), 0o644))
+				require.NoError(t, os.Chmod(blocked, 0o000))
+				t.Cleanup(func() {
+					_ = os.Chmod(blocked, 0o755)
+				})
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main"), 0o644))
+			},
+			wantPoints: 0,
+			wantNote:   "No test files detected",
 		},
 	}
 
