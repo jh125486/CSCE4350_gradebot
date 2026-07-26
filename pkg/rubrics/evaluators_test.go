@@ -1435,7 +1435,13 @@ func TestEvaluateRange_Detailed(t *testing.T) {
 		{
 			name: "MSET fails",
 			setupMock: func(m *kvStoreMock) {
-				m.doErr = errors.New("mset failed")
+				m.customDoFunc = func(input string) ([]string, []string, error) {
+					tokens := strings.Fields(input)
+					if len(tokens) > 0 && tokens[0] == cmdMSET {
+						return nil, nil, errors.New("mset failed")
+					}
+					return []string{""}, []string{}, nil
+				}
 			},
 			wantPoints:     0,
 			wantNoteSubstr: msgMSetFailed,
