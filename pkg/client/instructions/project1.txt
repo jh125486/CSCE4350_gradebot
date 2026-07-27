@@ -1,7 +1,12 @@
-Provide a subjective evaluation of the code out of 5 points total based on the following criteria:
+Provide a subjective evaluation of the code based on the following criteria:
 1. Code organization and structure.
 2. Best practices adherence for the language(s) used.
 3. Code readability and documentation.
 4. Overall code quality.
 
-Return a single score out of 5 points for the subjective section.
+This subjective evaluation is worth 5 points of the final grade, but you
+are scoring via the quality_score field, which must be a percentage from
+0 to 100 (100 = excellent, no notable issues; 0 = unusable). The grading
+harness converts that percentage to the 5-point scale itself -- do not
+scale or convert the number yourself, and do not report a score out of 5
+anywhere in quality_score or feedback.
