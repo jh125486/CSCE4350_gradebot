@@ -1433,9 +1433,29 @@ func TestEvaluateRange_Detailed(t *testing.T) {
 			wantNoteSubstr: msgExecutionFailed,
 		},
 		{
+			name: "FLUSHDB fails",
+			setupMock: func(m *kvStoreMock) {
+				m.customDoFunc = func(input string) ([]string, []string, error) {
+					tokens := strings.Fields(input)
+					if len(tokens) > 0 && tokens[0] == "FLUSHDB" {
+						return nil, nil, errors.New("flushdb failed")
+					}
+					return []string{""}, []string{}, nil
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "FLUSHDB failed",
+		},
+		{
 			name: "MSET fails",
 			setupMock: func(m *kvStoreMock) {
-				m.doErr = errors.New("mset failed")
+				m.customDoFunc = func(input string) ([]string, []string, error) {
+					tokens := strings.Fields(input)
+					if len(tokens) > 0 && tokens[0] == cmdMSET {
+						return nil, nil, errors.New("mset failed")
+					}
+					return []string{""}, []string{}, nil
+				}
 			},
 			wantPoints:     0,
 			wantNoteSubstr: msgMSetFailed,

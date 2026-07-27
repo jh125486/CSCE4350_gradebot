@@ -5,7 +5,7 @@ go 1.25.5
 require (
 	github.com/go-git/go-billy/v5 v5.9.1
 	github.com/google/uuid v1.6.0
-	github.com/jh125486/gradebot v1.5.0
+	github.com/jh125486/gradebot v1.5.2
 	github.com/stretchr/testify v1.11.1
 )
 
@@ -14,7 +14,7 @@ require (
 	dario.cat/mergo v1.0.2 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/ProtonMail/go-crypto v1.4.1 // indirect
-	github.com/alecthomas/kong v1.15.0 // indirect
+	github.com/alecthomas/kong v1.16.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/clipperhouse/displaywidth v0.11.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect

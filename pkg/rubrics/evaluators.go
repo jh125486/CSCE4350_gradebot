@@ -23,8 +23,9 @@ const (
 	// DataFileName is the name of the database file created by the program.
 	DataFileName = "data.db"
 	// expiryCheckDelay is the time to wait for key expiration to take effect.
-	// EXPIRE command in tests uses 100ms, so we add a small buffer to ensure expiration.
-	expiryCheckDelay = 110 * time.Millisecond
+	// EXPIRE takes seconds (Redis-style, matching checkExpireOperation's "EXPIRE key 1"),
+	// so this must exceed 1 second for the key to have actually expired by the time we check.
+	expiryCheckDelay = 1100 * time.Millisecond
 	// restartLoadDelay is the time to wait for a program to load persisted data after restart.
 	restartLoadDelay = 100 * time.Millisecond
 
@@ -443,7 +444,7 @@ func EvaluateTTLBasic(ctx context.Context, program baserubrics.ProgramRunner, ba
 }
 
 func checkExpireOperation(ctx context.Context, program baserubrics.ProgramRunner, key string) string {
-	out, err := do(ctx, program, fmt.Sprintf("EXPIRE %s 100", key))
+	out, err := do(ctx, program, fmt.Sprintf("EXPIRE %s 1", key))
 	if err != nil {
 		return fmt.Sprintf("EXPIRE failed: %v", err)
 	}
@@ -496,6 +497,15 @@ func EvaluateRange(ctx context.Context, program baserubrics.ProgramRunner, bag b
 		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
 	time.Sleep(restartLoadDelay) // wait for startup prompt so prevOutLen is set correctly in Do()
+
+	// RANGE uses short, deterministic keys ("a".."e") to test lexicographic
+	// ordering, but by this point the store already holds UUID keys from
+	// earlier evaluators -- and UUIDs frequently fall inside that range
+	// (e.g. a key starting with "c1..." sorts between "c" and "d"). Flush
+	// first so leftover keys from prior tests can't leak into the results.
+	if _, err := do(ctx, program, "FLUSHDB"); err != nil {
+		return rubricItem(fmt.Sprintf("FLUSHDB failed: %v", err), 0)
+	}
 
 	// Use deterministic keys for RANGE testing (lexicographic order matters)
 	// Generate unique values but use predictable keys
@@ -595,6 +605,18 @@ func testAbortTxn(ctx context.Context, program baserubrics.ProgramRunner, key, v
 		return fmt.Sprintf("BEGIN failed: %v", err), false
 	}
 
+	// Once BEGIN succeeds, the store is left in an open transaction until
+	// something closes it -- and every mutating command from every
+	// evaluator that runs after this one gets silently buffered instead of
+	// applied for as long as it stays open. If an assertion below fails
+	// early, make sure we still close it out before returning.
+	aborted := false
+	defer func() {
+		if !aborted {
+			_, _ = do(ctx, program, "ABORT")
+		}
+	}()
+
 	if _, err := do(ctx, program, fmt.Sprintf(setCommandFmt2, key, value)); err != nil {
 		return fmt.Sprintf("SET in transaction failed: %v", err), false
 	}
@@ -610,6 +632,7 @@ func testAbortTxn(ctx context.Context, program baserubrics.ProgramRunner, key, v
 	if _, err := do(ctx, program, "ABORT"); err != nil {
 		return fmt.Sprintf("ABORT failed: %v", err), false
 	}
+	aborted = true
 
 	out, err = do(ctx, program, fmt.Sprintf(getCommandFmt, key))
 	if err != nil {
@@ -629,6 +652,16 @@ func testCommitTxn(ctx context.Context, program baserubrics.ProgramRunner, key, 
 		return fmt.Sprintf("Second BEGIN failed: %v", err), false
 	}
 
+	// Same reasoning as testAbortTxn: close the transaction on any early
+	// failure so it doesn't stay open and corrupt every evaluator that
+	// runs after this one.
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = do(ctx, program, "ABORT")
+		}
+	}()
+
 	if _, err := do(ctx, program, fmt.Sprintf(setCommandFmt2, key, value)); err != nil {
 		return fmt.Sprintf("SET in second transaction failed: %v", err), false
 	}
@@ -636,6 +669,7 @@ func testCommitTxn(ctx context.Context, program baserubrics.ProgramRunner, key, 
 	if _, err := do(ctx, program, "COMMIT"); err != nil {
 		return fmt.Sprintf("COMMIT failed: %v", err), false
 	}
+	committed = true
 
 	if err := program.Kill(); err != nil {
 		return fmt.Sprintf("Kill failed: %v", err), false
